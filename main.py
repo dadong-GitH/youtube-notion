@@ -126,6 +126,74 @@ INDUSTRY_KEYWORDS: dict[str, list[str]] = {
     ],
 }
 
+# ── 콘텐츠 포맷 분류 키워드 (순서 = 우선순위) ──
+FORMAT_KEYWORDS: dict[str, list[str]] = {
+    "숏폼":           ["#shorts", "#Shorts", "shorts"],
+    "TVC/광고":       ["광고", "tvc", " cf ", "commercial", ":15\"", ":30\"", ":60\"",
+                       "15초", "30초", "60초"],
+    "브랜드 캠페인":   ["캠페인", "campaign", "챌린지", "challenge", "이벤트 영상"],
+    "제품 소개":       ["출시", "론칭", "launch", "신제품", "언박싱", "unboxing",
+                       "reveal", "공개", "소개 영상", "제품 소개"],
+    "인터뷰":          ["인터뷰", "interview", "q&a", "대담", "대화", "토크쇼",
+                       "대표님", "ceo"],
+    "다큐/스토리텔링": ["다큐", "documentary", "다큐멘터리", "스토리", "story",
+                       "이야기", "브랜드 스토리", "ep.", "episode"],
+    "팟캐스트/라디오": ["팟캐스트", "podcast", "팟캐", "라디오", "다시보기"],
+    "튜토리얼/가이드": ["튜토리얼", "tutorial", "사용법", "가이드", "guide",
+                       "how to", "howto", "방법 안내", "설명 영상", "알아보기"],
+    "비하인드/현장":   ["비하인드", "behind", "현장 스케치", "스케치", "메이킹",
+                       "촬영 현장", "making film"],
+    "이벤트/발표회":   ["모터쇼", "전시", "컨퍼런스", "발표회", "showcase",
+                       "행사", "기자회견", "시상식", "론칭 행사", "세미나"],
+    "뉴스/분석":       ["뉴스", "리포트", "분석", "전망", "시황", "브리핑",
+                       "라이브", "live", "모닝", "데일리", "주간"],
+}
+
+# ── 주제/컨셉 분류 키워드 ──
+TOPIC_KEYWORDS: dict[str, list[str]] = {
+    "사회공헌/ESG": [
+        "사회공헌", "esg", "환경", "지속가능", "sustainability",
+        "봉사", "기부", "나눔", "탄소", "친환경", "녹색",
+        "re100", "탄소중립", "net zero", "넷제로", "임팩트",
+        "사회적 가치", "복지", "소외", "장애", "다양성", "포용",
+        "기후", "climate", "환경보호", "자원순환", "업사이클",
+    ],
+    "제품/서비스": [
+        "신제품", "출시", "론칭", "launch", "제품", "서비스",
+        "언박싱", "기능", "스펙", "모델", "버전", "업데이트",
+        "공개", "reveal", "소개", "리뷰", "써봤어",
+    ],
+    "브랜드/기업": [
+        "브랜드", "기업 스토리", "철학", "가치관", "비전", "미션",
+        "역사", "창업", "명장", "인재", "기업 문화", "조직",
+        "ceo", "대표이사", "창립", "anniversary", "기념",
+    ],
+    "캠페인/이벤트": [
+        "캠페인", "campaign", "이벤트", "event",
+        "발표회", "기자회견", "컨퍼런스", "모터쇼", "전시회",
+        "챌린지", "challenge", "프로모션", "세일", "할인", "시상식",
+    ],
+    "트렌드/라이프": [
+        "트렌드", "trend", "라이프스타일", "lifestyle",
+        "콜라보", "collaboration", "mz", "z세대", "한류",
+        "팝업", "pop-up", "문화", "일상", "여행", "food",
+    ],
+    "정보/교육": [
+        "방법", "가이드", "guide", "튜토리얼", "tutorial",
+        "사용법", "설명", "알아보기", "공부", "학습", "강의",
+        "팁", "tip", "노하우", "정보", "안내",
+    ],
+    "뉴스/이슈": [
+        "뉴스", "이슈", "시황", "분석", "전망", "리포트",
+        "보도", "현황", "동향", "결산", "실적", "주가",
+        "금리", "경제", "사회", "정치", "산업 동향",
+    ],
+    "엔터테인먼트": [
+        "예능", "재미", "웃음", "재밌", "유머",
+        "게임", "도전", "먹방", "mukbang", "일상툰",
+    ],
+}
+
 youtube = build("youtube", "v3", developerKey=YOUTUBE_API_KEY)
 notion  = Client(auth=NOTION_TOKEN)
 
@@ -257,6 +325,9 @@ def is_brand_content(title: str, tags: list[str], channel_name: str = "") -> boo
 
 def classify_industry(title: str, channel_name: str, tags: list[str], default: str) -> str:
     """제목·채널명·태그 키워드 점수로 산업군을 재분류. 매칭 없으면 채널 기본값 사용."""
+    # "금융" → "금융/핀테크" 통합
+    if default == "금융":
+        default = "금융/핀테크"
     text = " ".join([title, channel_name] + tags).lower()
     scores = {
         industry: sum(1 for kw in keywords if kw.lower() in text)
@@ -264,6 +335,56 @@ def classify_industry(title: str, channel_name: str, tags: list[str], default: s
     }
     best = max(scores, key=scores.get)
     return best if scores[best] > 0 else default
+
+
+def classify_topic(title: str, tags: list[str]) -> str:
+    """제목·태그 키워드로 주제/컨셉을 분류."""
+    text = (title + " " + " ".join(tags)).lower()
+    scores = {
+        topic: sum(1 for kw in keywords if kw.lower() in text)
+        for topic, keywords in TOPIC_KEYWORDS.items()
+    }
+    best = max(scores, key=scores.get)
+    return best if scores[best] > 0 else "기타"
+
+
+def _duration_to_seconds(duration: str) -> int:
+    parts = duration.split(":")
+    try:
+        if len(parts) == 3:
+            return int(parts[0]) * 3600 + int(parts[1]) * 60 + int(parts[2])
+        if len(parts) == 2:
+            return int(parts[0]) * 60 + int(parts[1])
+    except ValueError:
+        pass
+    return 0
+
+
+def classify_format(title: str, tags: list[str], duration: str) -> str:
+    """제목·태그·영상 길이로 콘텐츠 포맷을 분류."""
+    text = (title + " " + " ".join(tags)).lower()
+    secs = _duration_to_seconds(duration)
+
+    # 숏폼: #Shorts 태그 또는 70초 이하
+    if "#shorts" in text or "#Shorts" in title:
+        return "숏폼"
+    if 0 < secs <= 70:
+        return "TVC/광고" if any(kw in text for kw in ["광고", "tvc", " cf "]) else "숏폼"
+
+    # 키워드 순서대로 매칭 (FORMAT_KEYWORDS 삽입 순서 = 우선순위)
+    for fmt, keywords in FORMAT_KEYWORDS.items():
+        if fmt == "숏폼":
+            continue
+        if any(kw.lower() in text for kw in keywords):
+            return fmt
+
+    # 길이 기반 폴백
+    if secs >= 2400:   # 40분 이상
+        return "팟캐스트/라디오"
+    if secs >= 900:    # 15분 이상
+        return "뉴스/분석"
+
+    return "기타"
 
 
 def fetch_playlist_video_ids(channel_id: str, since: datetime, seen: set) -> list[str]:
@@ -345,7 +466,7 @@ def fetch_video_details_batch(video_ids: list[str]) -> list[dict]:
 def thumbnail_url(video_id: str) -> str:
     return f"https://img.youtube.com/vi/{video_id}/hqdefault.jpg"
 
-def create_notion_page(video: dict, channel_name: str, industry: str):
+def create_notion_page(video: dict, channel_name: str, industry: str, fmt: str, topic: str):
     thumb = thumbnail_url(video["id"])
     notion.pages.create(
         parent={"database_id": DATABASE_ID},
@@ -354,6 +475,8 @@ def create_notion_page(video: dict, channel_name: str, industry: str):
             "영상 제목":     {"title":     [{"text": {"content": video["title"]}}]},
             "채널명":        {"rich_text": [{"text": {"content": channel_name}}]},
             "산업군":        {"select":    {"name": industry}},
+            "콘텐츠 포맷":   {"select":    {"name": fmt}},
+            "주제/컨셉":     {"select":    {"name": topic}},
             "업로드 날짜":   {"date":      {"start": video["published"]}},
             "조회수":        {"number":    video["views"]},
             "좋아요 수":     {"number":    video["likes"]},
@@ -481,22 +604,25 @@ def main(days: int = 1, include_search: bool = False):
     if excluded:
         print(f"  비브랜드 콘텐츠 제외: {excluded}개")
 
-    # ── 4-2. 산업군 재분류 (제목 + 채널명 + 태그 키워드 기반) ──
+    # ── 4-2. 산업군 재분류 + 포맷 + 주제 분류 ──
     classified = []
     for video in brand_videos:
         channel_name, default_industry = vid_to_meta.get(video["id"], ("Unknown", "IT/테크"))
-        industry = classify_industry(video["title"], channel_name, video.get("tags", []), default_industry)
-        classified.append((video, channel_name, industry))
+        tags     = video.get("tags", [])
+        industry = classify_industry(video["title"], channel_name, tags, default_industry)
+        fmt      = classify_format(video["title"], tags, video["duration"])
+        topic    = classify_topic(video["title"], tags)
+        classified.append((video, channel_name, industry, fmt, topic))
 
     # ── 5. Notion 저장 ──
     print(f"  Notion 저장 중... ({len(classified)}개)\n")
     added = 0
-    for video, channel_name, industry in classified:
-        create_notion_page(video, channel_name, industry)
+    for video, channel_name, industry, fmt, topic in classified:
+        create_notion_page(video, channel_name, industry, fmt, topic)
         seen.add(video["id"])
         added += 1
         views_str = f"{video['views']:,}"
-        print(f"  ✓ [{industry}] {channel_name} | {video['title'][:40]} | 조회 {views_str}")
+        print(f"  ✓ [{industry}] [{fmt}] [{topic}] {channel_name} | {video['title'][:30]} | 조회 {views_str}")
 
     save_seen(seen)
 
