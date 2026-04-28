@@ -230,9 +230,10 @@ def thumbnail_url(video_id: str) -> str:
     return f"https://img.youtube.com/vi/{video_id}/hqdefault.jpg"
 
 def create_notion_page(video: dict, channel_name: str, industry: str):
+    thumb = thumbnail_url(video["id"])
     notion.pages.create(
         parent={"database_id": DATABASE_ID},
-        cover={"type": "external", "external": {"url": thumbnail_url(video["id"])}},
+        cover={"type": "external", "external": {"url": thumb}},
         properties={
             "영상 제목":     {"title":     [{"text": {"content": video["title"]}}]},
             "채널명":        {"rich_text": [{"text": {"content": channel_name}}]},
@@ -245,12 +246,53 @@ def create_notion_page(video: dict, channel_name: str, industry: str):
             "유튜브 링크":   {"url":       video["url"]},
             "기획 인사이트": {"rich_text": [{"text": {"content": "요약 대기"}}]},
         },
+        children=[
+            {
+                "object": "block",
+                "type": "image",
+                "image": {"type": "external", "external": {"url": thumb}},
+            },
+            {
+                "object": "block",
+                "type": "bookmark",
+                "bookmark": {"url": video["url"]},
+            },
+        ],
     )
 
 
 # ─────────────────────────────────────────────
 # 메인 실행
 # ─────────────────────────────────────────────
+
+def delete_empty_pages():
+    """제목·유튜브 링크가 모두 비어있는 빈 페이지를 삭제."""
+    pages, cursor = [], None
+    while True:
+        kwargs = {"page_size": 100}
+        if cursor:
+            kwargs["start_cursor"] = cursor
+        res = notion.databases.query(database_id=DATABASE_ID, **kwargs)
+        pages.extend(res.get("results", []))
+        if not res.get("has_more"):
+            break
+        cursor = res["next_cursor"]
+
+    deleted = 0
+    for p in pages:
+        title = ""
+        title_prop = p["properties"].get("영상 제목", {}).get("title", [])
+        if title_prop:
+            title = title_prop[0].get("plain_text", "").strip()
+        url = p["properties"].get("유튜브 링크", {}).get("url", "") or ""
+        if not title and not url.strip():
+            notion.pages.update(page_id=p["id"], archived=True)
+            deleted += 1
+
+    if deleted:
+        print(f"  [정리] 빈 페이지 {deleted}개 삭제")
+    return deleted
+
 
 def main(days: int = 1, include_search: bool = False):
     from channels import CHANNELS
@@ -267,6 +309,9 @@ def main(days: int = 1, include_search: bool = False):
     print(f"  기간: 최근 {days}일  |  조회수 기준: {MIN_VIEWS:,}+")
     print(f"  공식채널: {len(resolved)}개  |  검색대상: {len(unresolved)}개")
     print(f"{'='*54}\n")
+
+    # ── 0. 빈 페이지 정리 ──
+    delete_empty_pages()
 
     all_new_ids: list[str] = []
     vid_to_meta: dict[str, tuple[str, str]] = {}
