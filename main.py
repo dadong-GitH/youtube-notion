@@ -362,20 +362,39 @@ def fetch_video_details_batch(video_ids: list[str]) -> list[dict]:
                 snip  = item["snippet"]
                 stats = item.get("statistics", {})
                 results.append({
-                    "id":        item["id"],
-                    "title":     snip["title"],
+                    "id":         item["id"],
+                    "title":      snip["title"],
                     "channel_id": snip["channelId"],
-                    "published": snip["publishedAt"][:10],
-                    "views":     int(stats.get("viewCount", 0)),
-                    "likes":     int(stats.get("likeCount", 0)),
-                    "comments":  int(stats.get("commentCount", 0)),
-                    "duration":  parse_duration(item["contentDetails"]["duration"]),
-                    "url":       f"https://www.youtube.com/watch?v={item['id']}",
-                    "tags":      snip.get("tags", []),
+                    "published":  snip["publishedAt"][:10],
+                    "views":      int(stats.get("viewCount", 0)),
+                    "likes":      int(stats.get("likeCount", 0)),
+                    "comments":   int(stats.get("commentCount", 0)),
+                    "duration":   parse_duration(item["contentDetails"]["duration"]),
+                    "url":        f"https://www.youtube.com/watch?v={item['id']}",
+                    "tags":       snip.get("tags", []),
                 })
         except Exception as e:
             print(f"  [오류] 영상 상세 조회 실패: {e}")
     return results
+
+
+def fetch_channel_subs(channel_ids: list[str]) -> dict[str, int]:
+    """channel_id → 구독자수. channels.list 배치 조회. 1 unit/50개."""
+    result: dict[str, int] = {}
+    unique_ids = list(set(channel_ids))
+    for i in range(0, len(unique_ids), 50):
+        batch = unique_ids[i : i + 50]
+        try:
+            res = youtube.channels().list(
+                part="statistics", id=",".join(batch)
+            ).execute()
+            for item in res.get("items", []):
+                result[item["id"]] = int(
+                    item["statistics"].get("subscriberCount", 0)
+                )
+        except Exception as e:
+            print(f"  [오류] 구독자수 조회 실패: {e}")
+    return result
 
 
 # ─────────────────────────────────────────────
@@ -388,28 +407,29 @@ def thumbnail_url(video_id: str) -> str:
 
 def create_notion_page(
     video: dict, channel_name: str, industry: str, fmt: str,
-    topic: str, purpose: str, score: int, reason: str,
+    topic: str, purpose: str, score: int, reason: str, subs: int = 0,
 ):
     thumb = thumbnail_url(video["id"])
     notion.pages.create(
         parent={"database_id": DATABASE_ID},
         cover={"type": "external", "external": {"url": thumb}},
         properties={
-            "영상 제목":     {"title":     [{"text": {"content": video["title"]}}]},
-            "채널명":        {"rich_text": [{"text": {"content": channel_name}}]},
-            "산업군":        {"select":    {"name": industry}},
-            "콘텐츠 포맷":   {"select":    {"name": fmt}},
-            "주제/컨셉":     {"select":    {"name": topic}},
-            "영상 목적":     {"select":    {"name": purpose}},
-            "reference_score": {"number": score},
-            "수집 사유":     {"rich_text": [{"text": {"content": reason}}]},
-            "업로드 날짜":   {"date":      {"start": video["published"]}},
-            "조회수":        {"number":    video["views"]},
-            "좋아요 수":     {"number":    video["likes"]},
-            "댓글 수":       {"number":    video["comments"]},
-            "영상 길이":     {"rich_text": [{"text": {"content": video["duration"]}}]},
-            "유튜브 링크":   {"url":       video["url"]},
-            "기획 인사이트": {"rich_text": [{"text": {"content": "요약 대기"}}]},
+            "영상 제목":       {"title":     [{"text": {"content": video["title"]}}]},
+            "채널명":          {"rich_text": [{"text": {"content": channel_name}}]},
+            "산업군":          {"select":    {"name": industry}},
+            "콘텐츠 포맷":     {"select":    {"name": fmt}},
+            "주제/컨셉":       {"select":    {"name": topic}},
+            "영상 목적":       {"select":    {"name": purpose}},
+            "reference_score": {"number":   score},
+            "수집 사유":       {"rich_text": [{"text": {"content": reason}}]},
+            "업로드 날짜":     {"date":      {"start": video["published"]}},
+            "조회수":          {"number":    video["views"]},
+            "좋아요 수":       {"number":    video["likes"]},
+            "댓글 수":         {"number":    video["comments"]},
+            "구독자수":        {"number":    subs},
+            "영상 길이":       {"rich_text": [{"text": {"content": video["duration"]}}]},
+            "유튜브 링크":     {"url":       video["url"]},
+            "기획 인사이트":   {"rich_text": [{"text": {"content": "요약 대기"}}]},
         },
         children=[
             {
@@ -522,27 +542,36 @@ def main(days: int = 1, include_search: bool = False):
     if excluded:
         print(f"  비브랜드 콘텐츠 제외: {excluded}개")
 
+    # ── 4-3. 채널 구독자수 배치 조회 ──
+    unique_channel_ids = list({v["channel_id"] for v in brand_videos if v.get("channel_id")})
+    subs_map: dict[str, int] = {}
+    if unique_channel_ids:
+        print(f"  구독자수 조회 중... ({len(unique_channel_ids)}개 채널)")
+        subs_map = fetch_channel_subs(unique_channel_ids)
+
     classified = []
     for video in brand_videos:
         channel_name, default_industry = vid_to_meta.get(video["id"], ("Unknown", "IT/테크"))
-        tags    = video.get("tags", [])
+        tags     = video.get("tags", [])
         industry = classify_industry(video["title"], channel_name, tags, default_industry)
         fmt      = classify_format(video["title"], tags, video["duration"])
         topic    = classify_topic(video["title"], tags)
         purpose  = classify_purpose(video["title"], tags)
         score    = calculate_reference_score(video, channel_name, fmt)
         reason   = generate_collection_reason(channel_name, fmt, score)
-        classified.append((video, channel_name, industry, fmt, topic, purpose, score, reason))
+        subs     = subs_map.get(video.get("channel_id", ""), 0)
+        classified.append((video, channel_name, industry, fmt, topic, purpose, score, reason, subs))
 
     print(f"  Notion 저장 중... ({len(classified)}개)\n")
     added = 0
-    for video, channel_name, industry, fmt, topic, purpose, score, reason in classified:
+    for video, channel_name, industry, fmt, topic, purpose, score, reason, subs in classified:
         try:
-            create_notion_page(video, channel_name, industry, fmt, topic, purpose, score, reason)
+            create_notion_page(video, channel_name, industry, fmt, topic, purpose, score, reason, subs)
             seen.add(video["id"])
             added += 1
             views_str = f"{video['views']:,}"
-            print(f"  ✓ [{industry}][{fmt}] {channel_name} | {video['title'][:30]} | {views_str}뷰 | 점수:{score}")
+            subs_str  = f"{subs:,}" if subs else "?"
+            print(f"  ✓ [{industry}][{fmt}] {channel_name} | {video['title'][:28]} | {views_str}뷰 | 구독:{subs_str}")
         except Exception as e:
             print(f"  [오류] {video['title'][:40]}: {e}")
 
