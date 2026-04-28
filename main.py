@@ -31,176 +31,29 @@ load_dotenv()
 from googleapiclient.discovery import build
 from notion_client import Client
 
+from config import (
+    MIN_VIEWS, MAX_SEARCH, MAX_PER_CHANNEL,
+    PRIORITY_CHANNELS, MOTION_STUDIOS,
+    ARTIST_LABEL_CHANNELS, BRAND_SIGNAL_KEYWORDS,
+    EXCLUDE_PATTERNS, EXCLUDE_TAG_KEYWORDS,
+    INDUSTRY_KEYWORDS, FORMAT_KEYWORDS, PURPOSE_KEYWORDS, TOPIC_KEYWORDS,
+    SCORE_BASE, SCORE_PRIORITY_CHANNEL, SCORE_MOTION_STUDIO,
+    SCORE_HIGH_QUALITY_FMT, SCORE_VIEWS_1M, SCORE_VIEWS_100K, SCORE_VIEWS_10K,
+    SCORE_LIKES_RATIO_HIGH, SCORE_COMMENTS_RATIO, SCORE_RECENT,
+    HIGH_QUALITY_FORMATS,
+)
+
 YOUTUBE_API_KEY = os.getenv("YOUTUBE_API_KEY")
 NOTION_TOKEN    = os.getenv("NOTION_TOKEN")
 DATABASE_ID     = os.getenv("NOTION_DATABASE_ID")
 
-MIN_VIEWS  = 100      # 최소 조회수 기준
-MAX_SEARCH = 90       # --search 모드에서 하루 최대 처리 채널 수 (할당량 보호)
-
-# ── 비브랜드 콘텐츠 제외 패턴 ──
-# 뮤직비디오, 연습영상, 팬캠, 예능 클립 등 브랜드 레퍼런스와 무관한 콘텐츠
-EXCLUDE_PATTERNS = [
-    r"\bMV\b", r"M/V", r"뮤직\s*비디오", r"Music\s*Video", r"Official\s*Video",
-    r"Dance\s*Practice", r"안무\s*영상", r"연습\s*영상", r"\bPRACTICE\b",
-    r"브이로그", r"\bVlog\b", r"V-LOG",
-    r"팬\s*캠", r"Fancam", r"직캠",
-    r"리액션", r"\bReaction\b",
-    r"Run\s*BTS", r"달려라\s*방탄", r"#달방", r"#RunBTS",
-    r"커버\s*곡", r"Cover\s*Song",
-    r"오디션", r"Audition",
-    r"밈\b", r"\bMeme\b",
-    r"LIVE\s*공연", r"콘서트\s*영상",
-]
-EXCLUDE_TAG_KEYWORDS = [
-    "mv", "music video", "뮤직비디오", "dance practice", "안무",
-    "fancam", "직캠", "팬캠", "vlog", "브이로그", "reaction", "리액션",
-]
-
-# 아티스트 레이블 채널: 브랜드 신호 없으면 전량 제외
-ARTIST_LABEL_CHANNELS = {
-    "HYBE", "빅히트뮤직", "SM엔터테인먼트", "YG엔터테인먼트",
-    "JYP엔터테인먼트", "어도어(ADOR)", "플레디스엔터테인먼트",
-    "FNC엔터테인먼트", "큐브엔터테인먼트", "스타쉽엔터테인먼트",
-    "위에화엔터테인먼트",
-}
-BRAND_SIGNAL_KEYWORDS = [
-    "광고", "TVC", "CF", "캠페인", "campaign", "ad", "commercial",
-    "론칭", "launch", "출시", "프로모션", "promotion", "브랜드",
-    "콜라보", "collaboration", "x ", "협찬",
-]
-
-# ── 산업군 분류 키워드 (제목 + 채널명 + 태그 기반) ──
-INDUSTRY_KEYWORDS: dict[str, list[str]] = {
-    "IT/테크": [
-        "갤럭시", "galaxy", "폴드", "플립", "폴더블", "스마트폰", "태블릿",
-        "AI", "인공지능", "반도체", "노트북", "카메라", "5G", "6G",
-        "클라우드", "로봇", "소프트웨어", "앱", "서비스", "플랫폼",
-        "OLED", "디스플레이", "칩셋", "GPU", "데이터센터",
-    ],
-    "금융/핀테크": [
-        "대출", "적금", "예금", "펀드", "투자", "카드", "보험",
-        "이체", "금리", "뱅킹", "banking", "주식", "ETF",
-        "토스", "페이", "pay", "결제", "자산", "재테크", "연금",
-    ],
-    "유통/이커머스": [
-        "배송", "쇼핑", "shopping", "할인", "세일", "sale", "특가",
-        "쿠폰", "멤버십", "편의점", "마트", "백화점", "리테일", "물류",
-        "로켓배송", "새벽배송",
-    ],
-    "식품/음료": [
-        "레시피", "요리", "맛있는", "음료", "과자", "라면", "커피",
-        "음식", "식품", "맛집", "신메뉴", "맥주", "소주", "우유",
-        "쿠키", "스낵", "바나나", "치킨", "버거", "신제품", "출시",
-    ],
-    "뷰티/패션": [
-        "뷰티", "beauty", "화장품", "cosmetic", "스킨케어", "skincare",
-        "메이크업", "makeup", "패션", "fashion", "의류", "향수", "perfume",
-        "립", "파운데이션", "세럼", "로션", "크림", "쿠션", "마스크팩",
-        "올리브영", "아모레", "헤라", "설화수", "라네즈",
-    ],
-    "자동차/모빌리티": [
-        "자동차", "car", "전기차", "EV", "electric", "SUV", "세단",
-        "주행", "드라이브", "drive", "차량", "모빌리티", "배터리",
-        "아이오닉", "EV6", "GV", "제네시스", "충전", "주유",
-    ],
-    "미디어/엔터": [
-        "드라마", "drama", "예능", "다큐", "documentary", "뉴스", "news",
-        "콘텐츠", "방송", "영화", "movie", "OTT", "시즌", "제작",
-        "스튜디오", "채널", "시리즈",
-    ],
-    "교육/에듀테크": [
-        "수능", "공부", "학습", "교육", "education", "강의", "인강",
-        "시험", "입시", "학원", "온라인", "튜터", "선생님", "과외",
-        "영어", "수학", "국어",
-    ],
-    "건강/의료": [
-        "건강", "health", "헬스", "의약품", "병원", "hospital",
-        "치료", "약", "medicine", "운동", "영양제", "비타민",
-        "피부", "클리닉", "의료", "헬스케어", "다이어트", "보건",
-    ],
-    "건설/부동산": [
-        "아파트", "apartment", "주택", "건설", "construction",
-        "인테리어", "interior", "시공", "분양", "리모델링",
-        "건축", "오피스텔", "부동산", "재건축", "공사",
-    ],
-}
-
-# ── 콘텐츠 포맷 분류 키워드 (순서 = 우선순위) ──
-FORMAT_KEYWORDS: dict[str, list[str]] = {
-    "숏폼":           ["#shorts", "#Shorts", "shorts"],
-    "TVC/광고":       ["광고", "tvc", " cf ", "commercial", ":15\"", ":30\"", ":60\"",
-                       "15초", "30초", "60초"],
-    "브랜드 캠페인":   ["캠페인", "campaign", "챌린지", "challenge", "이벤트 영상"],
-    "제품 소개":       ["출시", "론칭", "launch", "신제품", "언박싱", "unboxing",
-                       "reveal", "공개", "소개 영상", "제품 소개"],
-    "인터뷰":          ["인터뷰", "interview", "q&a", "대담", "대화", "토크쇼",
-                       "대표님", "ceo"],
-    "다큐/스토리텔링": ["다큐", "documentary", "다큐멘터리", "스토리", "story",
-                       "이야기", "브랜드 스토리", "ep.", "episode"],
-    "팟캐스트/라디오": ["팟캐스트", "podcast", "팟캐", "라디오", "다시보기"],
-    "튜토리얼/가이드": ["튜토리얼", "tutorial", "사용법", "가이드", "guide",
-                       "how to", "howto", "방법 안내", "설명 영상", "알아보기"],
-    "비하인드/현장":   ["비하인드", "behind", "현장 스케치", "스케치", "메이킹",
-                       "촬영 현장", "making film"],
-    "이벤트/발표회":   ["모터쇼", "전시", "컨퍼런스", "발표회", "showcase",
-                       "행사", "기자회견", "시상식", "론칭 행사", "세미나"],
-    "뉴스/분석":       ["뉴스", "리포트", "분석", "전망", "시황", "브리핑",
-                       "라이브", "live", "모닝", "데일리", "주간"],
-}
-
-# ── 주제/컨셉 분류 키워드 ──
-TOPIC_KEYWORDS: dict[str, list[str]] = {
-    "사회공헌/ESG": [
-        "사회공헌", "esg", "환경", "지속가능", "sustainability",
-        "봉사", "기부", "나눔", "탄소", "친환경", "녹색",
-        "re100", "탄소중립", "net zero", "넷제로", "임팩트",
-        "사회적 가치", "복지", "소외", "장애", "다양성", "포용",
-        "기후", "climate", "환경보호", "자원순환", "업사이클",
-    ],
-    "제품/서비스": [
-        "신제품", "출시", "론칭", "launch", "제품", "서비스",
-        "언박싱", "기능", "스펙", "모델", "버전", "업데이트",
-        "공개", "reveal", "소개", "리뷰", "써봤어",
-    ],
-    "브랜드/기업": [
-        "브랜드", "기업 스토리", "철학", "가치관", "비전", "미션",
-        "역사", "창업", "명장", "인재", "기업 문화", "조직",
-        "ceo", "대표이사", "창립", "anniversary", "기념",
-    ],
-    "캠페인/이벤트": [
-        "캠페인", "campaign", "이벤트", "event",
-        "발표회", "기자회견", "컨퍼런스", "모터쇼", "전시회",
-        "챌린지", "challenge", "프로모션", "세일", "할인", "시상식",
-    ],
-    "트렌드/라이프": [
-        "트렌드", "trend", "라이프스타일", "lifestyle",
-        "콜라보", "collaboration", "mz", "z세대", "한류",
-        "팝업", "pop-up", "문화", "일상", "여행", "food",
-    ],
-    "정보/교육": [
-        "방법", "가이드", "guide", "튜토리얼", "tutorial",
-        "사용법", "설명", "알아보기", "공부", "학습", "강의",
-        "팁", "tip", "노하우", "정보", "안내",
-    ],
-    "뉴스/이슈": [
-        "뉴스", "이슈", "시황", "분석", "전망", "리포트",
-        "보도", "현황", "동향", "결산", "실적", "주가",
-        "금리", "경제", "사회", "정치", "산업 동향",
-    ],
-    "엔터테인먼트": [
-        "예능", "재미", "웃음", "재밌", "유머",
-        "게임", "도전", "먹방", "mukbang", "일상툰",
-    ],
-}
-
 youtube = build("youtube", "v3", developerKey=YOUTUBE_API_KEY)
 notion  = Client(auth=NOTION_TOKEN)
 
-BASE_DIR     = Path(__file__).parent
-CACHE_FILE   = BASE_DIR / "channel_cache.json"    # 채널명 → channel_id
-SEEN_FILE    = BASE_DIR / "seen_videos.json"      # 저장된 video_id 집합
-CURSOR_FILE  = BASE_DIR / "search_cursor.json"    # unresolved 순환 커서
+BASE_DIR    = Path(__file__).parent
+CACHE_FILE  = BASE_DIR / "channel_cache.json"
+SEEN_FILE   = BASE_DIR / "seen_videos.json"
+CURSOR_FILE = BASE_DIR / "search_cursor.json"
 
 
 # ─────────────────────────────────────────────
@@ -237,7 +90,6 @@ def resolve_channel_id(ch: dict, cache: dict) -> str | None:
 
     channel_id = None
 
-    # handle → channels.list (1 unit)
     if "handle" in ch:
         try:
             res = youtube.channels().list(part="id", forHandle=ch["handle"]).execute()
@@ -247,7 +99,6 @@ def resolve_channel_id(ch: dict, cache: dict) -> str | None:
         except Exception:
             pass
 
-    # search → search.list (100 units, 최초 1회만)
     if not channel_id:
         query = ch.get("search", ch["name"])
         try:
@@ -308,8 +159,9 @@ def parse_duration(iso: str) -> str:
 
 
 def is_brand_content(title: str, tags: list[str], channel_name: str = "") -> bool:
-    """뮤직비디오·연습영상·팬캠 등 비브랜드 콘텐츠면 False.
-    아티스트 레이블 채널은 제목에 브랜드 신호가 있어야만 통과."""
+    """우선 채널·모션 스튜디오는 무조건 통과. 아티스트 레이블은 브랜드 신호 필요."""
+    if channel_name in PRIORITY_CHANNELS or channel_name in MOTION_STUDIOS:
+        return True
     for pattern in EXCLUDE_PATTERNS:
         if re.search(pattern, title, re.IGNORECASE):
             return False
@@ -324,25 +176,60 @@ def is_brand_content(title: str, tags: list[str], channel_name: str = "") -> boo
 
 
 def classify_industry(title: str, channel_name: str, tags: list[str], default: str) -> str:
-    """제목·채널명·태그 키워드 점수로 산업군을 재분류. 매칭 없으면 채널 기본값 사용."""
-    # "금융" → "금융/핀테크" 통합
-    if default == "금융":
-        default = "금융/핀테크"
+    """제목·채널명·태그 키워드 점수로 산업군을 분류."""
+    from config import INDUSTRY_MIGRATIONS
+    if default in INDUSTRY_MIGRATIONS:
+        default = INDUSTRY_MIGRATIONS[default]
     text = " ".join([title, channel_name] + tags).lower()
     scores = {
-        industry: sum(1 for kw in keywords if kw.lower() in text)
-        for industry, keywords in INDUSTRY_KEYWORDS.items()
+        ind: sum(1 for kw in kws if kw.lower() in text)
+        for ind, kws in INDUSTRY_KEYWORDS.items()
     }
     best = max(scores, key=scores.get)
     return best if scores[best] > 0 else default
+
+
+def classify_format(title: str, tags: list[str], duration: str) -> str:
+    """제목·태그·영상 길이로 콘텐츠 포맷을 분류."""
+    text = (title + " " + " ".join(tags)).lower()
+    secs = _duration_to_seconds(duration)
+
+    if "#shorts" in text or "#Shorts" in title:
+        return "숏폼/릴스형"
+    if 0 < secs <= 70:
+        return "TVC/광고 영상" if any(kw in text for kw in ["광고", "tvc", " cf "]) else "숏폼/릴스형"
+
+    for fmt, keywords in FORMAT_KEYWORDS.items():
+        if fmt == "숏폼/릴스형":
+            continue
+        if any(kw.lower() in text for kw in keywords):
+            return fmt
+
+    if secs >= 2400:
+        return "팟캐스트/라디오형"
+    if secs >= 900:
+        return "뉴스/분석"
+
+    return "기타"
 
 
 def classify_topic(title: str, tags: list[str]) -> str:
     """제목·태그 키워드로 주제/컨셉을 분류."""
     text = (title + " " + " ".join(tags)).lower()
     scores = {
-        topic: sum(1 for kw in keywords if kw.lower() in text)
-        for topic, keywords in TOPIC_KEYWORDS.items()
+        topic: sum(1 for kw in kws if kw.lower() in text)
+        for topic, kws in TOPIC_KEYWORDS.items()
+    }
+    best = max(scores, key=scores.get)
+    return best if scores[best] > 0 else "기타"
+
+
+def classify_purpose(title: str, tags: list[str]) -> str:
+    """제목·태그 키워드로 영상 목적을 분류."""
+    text = (title + " " + " ".join(tags)).lower()
+    scores = {
+        purpose: sum(1 for kw in kws if kw.lower() in text)
+        for purpose, kws in PURPOSE_KEYWORDS.items()
     }
     best = max(scores, key=scores.get)
     return best if scores[best] > 0 else "기타"
@@ -360,31 +247,63 @@ def _duration_to_seconds(duration: str) -> int:
     return 0
 
 
-def classify_format(title: str, tags: list[str], duration: str) -> str:
-    """제목·태그·영상 길이로 콘텐츠 포맷을 분류."""
-    text = (title + " " + " ".join(tags)).lower()
-    secs = _duration_to_seconds(duration)
+def calculate_reference_score(video: dict, channel_name: str, fmt: str) -> int:
+    """레퍼런스 품질 점수 계산 (0–100)."""
+    score = SCORE_BASE
 
-    # 숏폼: #Shorts 태그 또는 70초 이하
-    if "#shorts" in text or "#Shorts" in title:
-        return "숏폼"
-    if 0 < secs <= 70:
-        return "TVC/광고" if any(kw in text for kw in ["광고", "tvc", " cf "]) else "숏폼"
+    if channel_name in MOTION_STUDIOS:
+        score += SCORE_MOTION_STUDIO
+    elif channel_name in PRIORITY_CHANNELS:
+        score += SCORE_PRIORITY_CHANNEL
 
-    # 키워드 순서대로 매칭 (FORMAT_KEYWORDS 삽입 순서 = 우선순위)
-    for fmt, keywords in FORMAT_KEYWORDS.items():
-        if fmt == "숏폼":
-            continue
-        if any(kw.lower() in text for kw in keywords):
-            return fmt
+    if fmt in HIGH_QUALITY_FORMATS:
+        score += SCORE_HIGH_QUALITY_FMT
 
-    # 길이 기반 폴백
-    if secs >= 2400:   # 40분 이상
-        return "팟캐스트/라디오"
-    if secs >= 900:    # 15분 이상
-        return "뉴스/분석"
+    views = video.get("views", 0)
+    if views >= 1_000_000:
+        score += SCORE_VIEWS_1M
+    elif views >= 100_000:
+        score += SCORE_VIEWS_100K
+    elif views >= 10_000:
+        score += SCORE_VIEWS_10K
 
-    return "기타"
+    if views > 0:
+        likes    = video.get("likes", 0)
+        comments = video.get("comments", 0)
+        if likes / views > 0.05:
+            score += SCORE_LIKES_RATIO_HIGH
+        if comments / views > 0.01:
+            score += SCORE_COMMENTS_RATIO
+
+    try:
+        pub_str = video.get("published", "")
+        if pub_str:
+            pub = datetime.fromisoformat(pub_str)
+            if pub.tzinfo is None:
+                pub = pub.replace(tzinfo=timezone.utc)
+            days_old = (datetime.now(timezone.utc) - pub).days
+            if days_old < 30:
+                score += SCORE_RECENT
+    except Exception:
+        pass
+
+    return min(100, score)
+
+
+def generate_collection_reason(channel_name: str, fmt: str, score: int) -> str:
+    """수집 사유 자동 생성."""
+    reasons = []
+    if channel_name in MOTION_STUDIOS:
+        reasons.append(f"모션그래픽 스튜디오")
+    elif channel_name in PRIORITY_CHANNELS:
+        reasons.append(f"우선 수집 채널")
+    if fmt in HIGH_QUALITY_FORMATS:
+        reasons.append(f"고품질 포맷 ({fmt})")
+    if score >= 80:
+        reasons.append("고점수 레퍼런스")
+    if not reasons:
+        reasons.append(f"채널 모니터링")
+    return " · ".join(reasons)
 
 
 def fetch_playlist_video_ids(channel_id: str, since: datetime, seen: set) -> list[str]:
@@ -393,7 +312,7 @@ def fetch_playlist_video_ids(channel_id: str, since: datetime, seen: set) -> lis
     new_ids = []
     try:
         res = youtube.playlistItems().list(
-            part="contentDetails", playlistId=playlist_id, maxResults=10
+            part="contentDetails", playlistId=playlist_id, maxResults=MAX_PER_CHANNEL
         ).execute()
         for item in res.get("items", []):
             cd  = item["contentDetails"]
@@ -443,16 +362,16 @@ def fetch_video_details_batch(video_ids: list[str]) -> list[dict]:
                 snip  = item["snippet"]
                 stats = item.get("statistics", {})
                 results.append({
-                    "id":         item["id"],
-                    "title":      snip["title"],
+                    "id":        item["id"],
+                    "title":     snip["title"],
                     "channel_id": snip["channelId"],
-                    "published":  snip["publishedAt"][:10],
-                    "views":      int(stats.get("viewCount", 0)),
-                    "likes":      int(stats.get("likeCount", 0)),
-                    "comments":   int(stats.get("commentCount", 0)),
-                    "duration":   parse_duration(item["contentDetails"]["duration"]),
-                    "url":        f"https://www.youtube.com/watch?v={item['id']}",
-                    "tags":       snip.get("tags", []),
+                    "published": snip["publishedAt"][:10],
+                    "views":     int(stats.get("viewCount", 0)),
+                    "likes":     int(stats.get("likeCount", 0)),
+                    "comments":  int(stats.get("commentCount", 0)),
+                    "duration":  parse_duration(item["contentDetails"]["duration"]),
+                    "url":       f"https://www.youtube.com/watch?v={item['id']}",
+                    "tags":      snip.get("tags", []),
                 })
         except Exception as e:
             print(f"  [오류] 영상 상세 조회 실패: {e}")
@@ -466,7 +385,11 @@ def fetch_video_details_batch(video_ids: list[str]) -> list[dict]:
 def thumbnail_url(video_id: str) -> str:
     return f"https://img.youtube.com/vi/{video_id}/hqdefault.jpg"
 
-def create_notion_page(video: dict, channel_name: str, industry: str, fmt: str, topic: str):
+
+def create_notion_page(
+    video: dict, channel_name: str, industry: str, fmt: str,
+    topic: str, purpose: str, score: int, reason: str,
+):
     thumb = thumbnail_url(video["id"])
     notion.pages.create(
         parent={"database_id": DATABASE_ID},
@@ -477,6 +400,9 @@ def create_notion_page(video: dict, channel_name: str, industry: str, fmt: str, 
             "산업군":        {"select":    {"name": industry}},
             "콘텐츠 포맷":   {"select":    {"name": fmt}},
             "주제/컨셉":     {"select":    {"name": topic}},
+            "영상 목적":     {"select":    {"name": purpose}},
+            "reference_score": {"number": score},
+            "수집 사유":     {"rich_text": [{"text": {"content": reason}}]},
             "업로드 날짜":   {"date":      {"start": video["published"]}},
             "조회수":        {"number":    video["views"]},
             "좋아요 수":     {"number":    video["likes"]},
@@ -506,16 +432,14 @@ def create_notion_page(video: dict, channel_name: str, industry: str, fmt: str, 
 
 def delete_empty_pages():
     """제목·유튜브 링크가 모두 비어있는 빈 페이지를 삭제."""
-    pages, cursor = [], None
+    pages: list = []
+    kwargs: dict = {"database_id": DATABASE_ID, "page_size": 100}
     while True:
-        kwargs = {"page_size": 100}
-        if cursor:
-            kwargs["start_cursor"] = cursor
-        res = notion.databases.query(database_id=DATABASE_ID, **kwargs)
+        res = notion.databases.query(**kwargs)
         pages.extend(res.get("results", []))
         if not res.get("has_more"):
             break
-        cursor = res["next_cursor"]
+        kwargs["start_cursor"] = res["next_cursor"]
 
     deleted = 0
     for p in pages:
@@ -549,13 +473,11 @@ def main(days: int = 1, include_search: bool = False):
     print(f"  공식채널: {len(resolved)}개  |  검색대상: {len(unresolved)}개")
     print(f"{'='*54}\n")
 
-    # ── 0. 빈 페이지 정리 ──
     delete_empty_pages()
 
     all_new_ids: list[str] = []
     vid_to_meta: dict[str, tuple[str, str]] = {}
 
-    # ── 1. 공식 채널: 업로드 플레이리스트 (1 unit/채널) ──
     for ch in resolved:
         cid = cache[ch["name"]]
         new_ids = fetch_playlist_video_ids(cid, since, seen)
@@ -565,7 +487,6 @@ def main(days: int = 1, include_search: bool = False):
             for vid in new_ids:
                 vid_to_meta[vid] = (ch["name"], ch["industry"])
 
-    # ── 2. 미탐색 채널: 브랜드명 영상 검색 (100 units/채널) ──
     if include_search and unresolved:
         cursor = load_cursor()
         batch  = unresolved[cursor : cursor + MAX_SEARCH]
@@ -586,15 +507,12 @@ def main(days: int = 1, include_search: bool = False):
         print("  신규 영상 없음.\n")
         return
 
-    # ── 3. 영상 상세 배치 조회 (1 unit/50개) ──
     print(f"\n  영상 상세 조회 중... ({len(all_new_ids)}개 후보)")
     videos = fetch_video_details_batch(all_new_ids)
 
-    # ── 4. 조회수 필터 + 중복 제거 ──
     filtered = [v for v in videos if v["views"] >= MIN_VIEWS and v["id"] not in seen]
     print(f"  조회수 {MIN_VIEWS:,} 미만 또는 중복 제외: {len(videos) - len(filtered)}개")
 
-    # ── 4-1. 비브랜드 콘텐츠 필터 (뮤직비디오·연습영상·팬캠 등 제외) ──
     brand_videos = [
         v for v in filtered
         if is_brand_content(v["title"], v.get("tags", []),
@@ -604,25 +522,29 @@ def main(days: int = 1, include_search: bool = False):
     if excluded:
         print(f"  비브랜드 콘텐츠 제외: {excluded}개")
 
-    # ── 4-2. 산업군 재분류 + 포맷 + 주제 분류 ──
     classified = []
     for video in brand_videos:
         channel_name, default_industry = vid_to_meta.get(video["id"], ("Unknown", "IT/테크"))
-        tags     = video.get("tags", [])
+        tags    = video.get("tags", [])
         industry = classify_industry(video["title"], channel_name, tags, default_industry)
         fmt      = classify_format(video["title"], tags, video["duration"])
         topic    = classify_topic(video["title"], tags)
-        classified.append((video, channel_name, industry, fmt, topic))
+        purpose  = classify_purpose(video["title"], tags)
+        score    = calculate_reference_score(video, channel_name, fmt)
+        reason   = generate_collection_reason(channel_name, fmt, score)
+        classified.append((video, channel_name, industry, fmt, topic, purpose, score, reason))
 
-    # ── 5. Notion 저장 ──
     print(f"  Notion 저장 중... ({len(classified)}개)\n")
     added = 0
-    for video, channel_name, industry, fmt, topic in classified:
-        create_notion_page(video, channel_name, industry, fmt, topic)
-        seen.add(video["id"])
-        added += 1
-        views_str = f"{video['views']:,}"
-        print(f"  ✓ [{industry}] [{fmt}] [{topic}] {channel_name} | {video['title'][:30]} | 조회 {views_str}")
+    for video, channel_name, industry, fmt, topic, purpose, score, reason in classified:
+        try:
+            create_notion_page(video, channel_name, industry, fmt, topic, purpose, score, reason)
+            seen.add(video["id"])
+            added += 1
+            views_str = f"{video['views']:,}"
+            print(f"  ✓ [{industry}][{fmt}] {channel_name} | {video['title'][:30]} | {views_str}뷰 | 점수:{score}")
+        except Exception as e:
+            print(f"  [오류] {video['title'][:40]}: {e}")
 
     save_seen(seen)
 
