@@ -1,0 +1,17 @@
+# 환경 변수 (API 키)
+.env
+
+# 자동 생성 데이터 파일
+seen_videos.json
+channel_cache.json
+search_cursor.json
+
+# 로그
+monitor.log
+*.log
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+.DS_Store
